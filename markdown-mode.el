@@ -658,7 +658,7 @@ markdown-header-face-* faces."
       (block-end . ,(rx (and (or (one-or-more (zero-or-more blank) "\n") line-end))))
       (numeral . ,(rx (and (one-or-more (any "0-9#")) ".")))
       (bullet . ,(rx (any "*+:-")))
-      (list-marker . ,(rx (or (and (one-or-more (any "a-zA-Z0-9#")) ".")
+      (list-marker . ,(rx (or (and (opt "(") (one-or-more (any "a-zA-Z0-9@#")) (or ")" "."))
                               (any "*+:-"))))
       (checkbox . ,(rx "[" (any " xX") "]")))
     "Markdown-specific sexps for `markdown-rx'")
