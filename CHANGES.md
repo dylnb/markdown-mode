@@ -1,13 +1,18 @@
-# Markdown Mode 2.6
+# Markdown Mode 2.7
 
 *Under development*
 
-*   **Breaking changes:**
-    -   GNU Emacs 26.1 or later is required.
+# Markdown Mode 2.6
 
-*   New Feature:
+*   **Breaking changes:**
+    - GNU Emacs 27.1 or later is required.
+    - Don't allow space between label and text in reference link same as CommonMark [GH-774][]
+    - Whitespace is required before the closing sequence of an atx header. [GH-778][]
+
+*   New Features:
     - Introduce `markdown-fontify-whole-heading-line` variable for highlighting
-      whole header line. [GH-705][]
+      whole header line. [GH-705][] [GH-773][]
+    - Backslashes in escape sequences are now treated as markup. [GH-377][]
 
 *   Improvements:
     - `markdown` passes `buffer-file-name` as a parameter to
@@ -17,19 +22,49 @@
     - Don't spell-check against pandoc references. [GH-572][]
     - Support tree-sitter-based major modes used by Emacs 29.
     - Highlight "geo" URI scheme [GH-739][]
+    - `clear-image-cache` to make toggle inline image update.
+    - Highlight autolinks if a scheme is valid and it is not registered in markdown-uri-types
+      [GH-743][]
+    - Improve horizontal rule rendering in `markdown-view-mode` [GH-753][]
+    - Don't load major-mode if it isn't in `auto-mode-alist`[GH-761][]
+    - Improve `markdown-insert-table` prompt message [GH-771][]
+    - Consider `major-mode-remap-alist` to determine major-mode for code blocks [GH-787][]
+    - Set marker after footnote reference [GH-793][]
+    - Improve putting text attribute for indented blocks [GH-794][]
 
 *   Bug fixes:
     - Don't override table faces by link faces [GH-716][]
     - Fix invalid italic fontification after bold markups[GH-731][]
     - Fix `markdown-live-preview-mode` fails when `eww-auto-rename-buffer` is non-nil[GH-737][]
+    - Fix to mistake to handle the line as delimiter row[GH-747][]
+    - Fix wrong displaying horizontal rule in `markdown-view-mode` [GH-747][]
+    - HTML-escape title in `markdown-add-xhtml-header-and-footer` [markdown-xwidget-issue-9](https://github.com/cfclrk/markdown-xwidget/issues/9)
+    - Fix wrong inline link parsing that has link title[GH-762][]
+    - Don't treat backslashes as escapes inside literal blocks[GH-766][] [GH-768][]
+    - Fix `markdown-enter-key` doesn't delete empty checkbox list[GH-786][]
 
+  [gh-377]: https://github.com/jrblevin/markdown-mode/issues/377
   [gh-572]: https://github.com/jrblevin/markdown-mode/issues/572
   [gh-705]: https://github.com/jrblevin/markdown-mode/issues/705
   [gh-716]: https://github.com/jrblevin/markdown-mode/issues/716
   [gh-731]: https://github.com/jrblevin/markdown-mode/issues/731
   [gh-737]: https://github.com/jrblevin/markdown-mode/issues/737
   [gh-739]: https://github.com/jrblevin/markdown-mode/issues/739
-
+  [gh-743]: https://github.com/jrblevin/markdown-mode/issues/743
+  [gh-747]: https://github.com/jrblevin/markdown-mode/issues/747
+  [gh-753]: https://github.com/jrblevin/markdown-mode/issues/753
+  [gh-761]: https://github.com/jrblevin/markdown-mode/issues/761
+  [gh-762]: https://github.com/jrblevin/markdown-mode/issues/762
+  [gh-766]: https://github.com/jrblevin/markdown-mode/issues/766
+  [gh-768]: https://github.com/jrblevin/markdown-mode/pull/768
+  [gh-771]: https://github.com/jrblevin/markdown-mode/issues/771
+  [gh-773]: https://github.com/jrblevin/markdown-mode/issues/773
+  [gh-774]: https://github.com/jrblevin/markdown-mode/issues/774
+  [gh-778]: https://github.com/jrblevin/markdown-mode/issues/778
+  [gh-786]: https://github.com/jrblevin/markdown-mode/pull/786
+  [gh-787]: https://github.com/jrblevin/markdown-mode/issues/787
+  [gh-793]: https://github.com/jrblevin/markdown-mode/pull/793
+  [gh-794]: https://github.com/jrblevin/markdown-mode/issues/794
 
 # Markdown Mode 2.5
 

@@ -13,15 +13,15 @@
   [leanpub-badge]: https://img.shields.io/badge/leanpub-guide-orange.svg
 
 markdown-mode is a major mode for editing [Markdown][]-formatted
-text.  The latest stable version is markdown-mode 2.5, released on
-Feb 12, 2022.  See the [release notes][] for details.
+text.  The latest stable version is markdown-mode 2.6, released on
+Aug 30, 2023.  See the [release notes][] for details.
 markdown-mode is free software, licensed under the GNU GPL,
 version 3 or later.
 
 ![Markdown Mode Screenshot](https://jblevins.org/projects/markdown-mode/screenshots/20170818-001.png)
 
 [Markdown]: http://daringfireball.net/projects/markdown/
-[release notes]: https://github.com/jrblevin/markdown-mode/releases/tag/v2.5
+[release notes]: https://github.com/jrblevin/markdown-mode/releases/tag/v2.6
 
 ## Documentation
 
@@ -83,7 +83,9 @@ example; adjust settings as desired):
 (use-package markdown-mode
   :ensure t
   :mode ("README\\.md\\'" . gfm-mode)
-  :init (setq markdown-command "multimarkdown"))
+  :init (setq markdown-command "multimarkdown")
+  :bind (:map markdown-mode-map
+         ("C-c C-e" . markdown-do)))
 ```
 
 [MELPA Stable]: http://stable.melpa.org/
@@ -106,9 +108,12 @@ to load automatically by adding the following to your init file:
 (autoload 'gfm-mode "markdown-mode"
    "Major mode for editing GitHub Flavored Markdown files" t)
 (add-to-list 'auto-mode-alist '("README\\.md\\'" . gfm-mode))
+
+(with-eval-after-load 'markdown-mode
+  (define-key markdown-mode-map (kbd "C-c C-e") #'markdown-do))
 ```
 
-[markdown-mode.el]: https://raw.githubusercontent.com/jrblevin/markdown-mode/v2.5/markdown-mode.el
+[markdown-mode.el]: https://raw.githubusercontent.com/jrblevin/markdown-mode/v2.6/markdown-mode.el
 
 **Development Version**
 
@@ -346,6 +351,19 @@ can obtain a list of all keybindings by pressing <kbd>C-c C-h</kbd>.
     in a browser other than `eww`.  If you want to force the
     preview window to appear at the bottom or right, you can
     customize `markdown-split-window-direction`.
+
+      ```lisp
+      ;; Set custom markdown preview function
+      (setq markdown-live-preview-window-function #'my-markdown-preview-function)
+
+      ;; always open the preview window at the right
+      (setq markdown-split-window-direction 'right)
+      ;; always open the preview window at the bottom
+      (setq markdown-split-window-direction 'below)
+
+      ;; delete exported HTML file after markdown-live-preview-export is called
+      (setq markdown-live-preview-delete-export 'delete-on-export)
+      ```
 
     To summarize:
 
@@ -1068,7 +1086,7 @@ contributions!  See the [contributors graph][contrib] for details.
 ## Bugs
 
 markdown-mode is developed and tested primarily for compatibility
-with GNU Emacs 26.1 and later.  If you find any bugs in
+with GNU Emacs 27.1 and later.  If you find any bugs in
 markdown-mode, please construct a test case or a patch and open a
 ticket on the [GitHub issue tracker][issues].  See the
 contributing guidelines in `CONTRIBUTING.md` for details on
@@ -1097,6 +1115,7 @@ first version was released on May 24, 2007.
   * 2017-08-31: [Version 2.3][]
   * 2020-05-30: [Version 2.4][]
   * 2022-02-12: [Version 2.5][]
+  * 2023-08-30: [Version 2.6][]
 
 [Version 1.1]: https://jblevins.org/projects/markdown-mode/rev-1-1
 [Version 1.2]: https://jblevins.org/projects/markdown-mode/rev-1-2
@@ -1114,3 +1133,4 @@ first version was released on May 24, 2007.
 [Version 2.3]: https://jblevins.org/projects/markdown-mode/rev-2-3
 [Version 2.4]: https://github.com/jrblevin/markdown-mode/releases/tag/v2.4
 [Version 2.5]: https://github.com/jrblevin/markdown-mode/releases/tag/v2.5
+[Version 2.6]: https://github.com/jrblevin/markdown-mode/releases/tag/v2.6
