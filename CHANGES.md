@@ -2,6 +2,29 @@
 
 *Under development*
 
+*   New Features:
+    - Variable `markdown-follow-link-functions` extends
+      `markdown-follow-link-at-point` similarly to Org's
+      `org-open-at-point-functions`, allowing other libraries to
+      handle links specially. [GH-780][]
+    - Support media handler for images and drag and drop images [GH-804][]
+    - Add functions to move to the beginning and end of lines
+      (`markdown-beginning-of-line` and `markdown-end-of-line`), and the
+      variable `markdown-special-ctrl-a/e`, like Org mode.
+
+*   Bug fixes:
+    - Don't highlight superscript/subscript in math inline/block [GH-802][]
+    - Fix table alignment when a column has a seperator in code block [GH-817][]
+
+*   Improvements:
+    - Apply url-unescape against URL in an inline link [GH-805][]
+
+  [gh-780]: https://github.com/jrblevin/markdown-mode/issues/780
+  [gh-802]: https://github.com/jrblevin/markdown-mode/issues/802
+  [gh-804]: https://github.com/jrblevin/markdown-mode/issues/804
+  [gh-805]: https://github.com/jrblevin/markdown-mode/issues/805
+  [gh-817]: https://github.com/jrblevin/markdown-mode/issues/817
+
 # Markdown Mode 2.6
 
 *   **Breaking changes:**

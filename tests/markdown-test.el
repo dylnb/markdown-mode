@@ -51,17 +51,15 @@
   "Run BODY in a temporary buffer containing STRING in MODE."
   (declare (indent 2))
   `(let ((win (selected-window)))
-     (unwind-protect
-         (with-temp-buffer
-           (set-window-buffer win (current-buffer) t)
-           (erase-buffer)
-           (insert ,string)
-           (funcall ,mode)
-           (setq-default indent-tabs-mode nil)
-           (goto-char (point-min))
-           (font-lock-ensure)
-           (prog1 ,@body (kill-buffer)))
-       (ignore))))
+     (with-temp-buffer
+       (set-window-buffer win (current-buffer) t)
+       (erase-buffer)
+       (insert ,string)
+       (funcall ,mode)
+       (setq-default indent-tabs-mode nil)
+       (goto-char (point-min))
+       (font-lock-ensure)
+       ,@body)))
 
 (defmacro markdown-test-file-mode (mode file &rest body)
   "Open FILE from `markdown-test-dir' in MODE and execute BODY."
@@ -4959,6 +4957,192 @@ date = 2015-08-13 11:35:25 EST
 
 ;;; Movement tests:
 
+(ert-deftest test-markdown-movement/beginning-of-line ()
+  "Test beginning of line movement"
+  (markdown-test-string "Some text\nSome other text"
+    (goto-char (point-max))
+    (markdown-beginning-of-line)
+    (should (bolp)))
+  (markdown-test-string "## Headline\n### Sub"
+    (goto-char (point-max))
+    (outline-hide-sublevels 2)
+    (markdown-beginning-of-line)
+    (should (= (line-beginning-position) 1)))
+
+  ;; With `visual-line-mode' active, move to beginning of visual line.
+  (markdown-test-string "Text "
+    (visual-line-mode)
+    (dotimes (_ 1000) (insert "Text "))
+    (goto-char (point-max))
+    (markdown-beginning-of-line)
+    (should-not (bolp)))
+
+  ;; In a wide headline, with `visual-line-mode', prefer going to the
+  ;; beginning of a visual line than to the logical beginning of line,
+  ;; even if special movement is active.
+  (markdown-test-string "## Headline"
+    (visual-line-mode)
+    (goto-char (point-max))
+    (dotimes (_ 1000) (insert "Text "))
+    (markdown-beginning-of-line)
+    (should-not (bolp)))
+  (markdown-test-string "## Headline"
+    (visual-line-mode)
+    (goto-char (point-max))
+    (dotimes (_ 1000) (insert "Text "))
+    (let ((markdown-special-ctrl-a/e t))
+      (markdown-beginning-of-line))
+    (should-not (bolp)))
+
+  ;; At an headline with special movement, first move at beginning of
+  ;; title, then at the beginning of line, rinse, repeat.
+  (markdown-test-string "## Headline"
+    (let ((markdown-special-ctrl-a/e t))
+      (goto-char (point-max))
+      (markdown-beginning-of-line)
+      (should (looking-at "Headline"))
+      (markdown-beginning-of-line)
+      (should (bolp))
+      (markdown-beginning-of-line)
+      (should (looking-at "Headline"))))
+  (markdown-test-string "## Headline"
+    (let ((markdown-special-ctrl-a/e nil))
+      (goto-char (point-max))
+      (markdown-beginning-of-line)
+      (should (bolp))))
+
+  ;; At an headline with reversed movement, first move to beginning of
+  ;; line, then to the beginning of title.
+  (markdown-test-string "## Headline"
+    (let ((markdown-special-ctrl-a/e 'reversed)
+	        (this-command last-command))
+      (goto-char (point-max))
+      (markdown-beginning-of-line)
+      (should (bolp))
+      (markdown-beginning-of-line)
+      (should (looking-at "Headline"))))
+
+  ;; At an item with special movement, first move after to beginning
+  ;; of title, then to the beginning of line, rinse, repeat.
+  (markdown-test-string "- [ ] Item"
+    (let ((markdown-special-ctrl-a/e nil))
+      (goto-char (point-max))
+      (markdown-beginning-of-line)
+      (should (bolp))))
+  (markdown-test-string "- [ ] Item"
+    (let ((markdown-special-ctrl-a/e t))
+      (goto-char (point-max))
+      (markdown-beginning-of-line)
+      (should (looking-at "Item"))
+      (markdown-beginning-of-line)
+      (should (bolp))
+      (markdown-beginning-of-line)
+      (should (looking-at "Item"))))
+  (markdown-test-string "- [ ] Item"
+    (let ((markdown-special-ctrl-a/e 'reversed)
+	        (this-command last-command))
+      (goto-char (point-max))
+      (markdown-beginning-of-line)
+      (should (bolp))
+      (markdown-beginning-of-line)
+      (should (looking-at "Item")))))
+
+(ert-deftest test-markdown-movement/end-of-line ()
+  "Test end of line movement"
+  (markdown-test-string
+   "Some text\nSome other text"
+   (markdown-end-of-line)
+   (should (eolp)))
+
+  ;; With `visual-line-mode' active, move to end of visual line.
+  ;; However, never go past ellipsis.
+  (markdown-test-string
+   "Some Text"
+   (visual-line-mode)
+   (goto-char (point-max))
+   (dotimes (_ 1000) (insert "Text "))
+   (markdown-end-of-line)
+   (should-not (eolp)))
+
+  ;; In a wide headline, with `visual-line-mode', prefer going to end
+  ;; of visible line if tags, or end of line, are farther.
+  (markdown-test-string "Text "
+    (visual-line-mode)
+    (goto-char (point-max))
+    (dotimes (_ 1000) (insert "Text "))
+    (goto-char (point-min))
+    (markdown-end-of-line)
+    (should-not (eolp)))
+  (markdown-test-string "## Heading\nSome contents"
+    (goto-char (point-max))
+    (outline-hide-sublevels 2)
+    (markdown-end-of-line)
+    (should (= (line-beginning-position) 1)))
+
+  ;; In a wide headline, with `visual-line-mode', prefer going to end
+  ;; of visible line if tags, or end of line, are farther.
+  (markdown-test-string "## Heading "
+    (visual-line-mode)
+    (goto-char (point-max))
+    (dotimes (_ 1000) (insert "Text "))
+    (goto-char (point-min))
+    (markdown-end-of-line)
+    (should-not (eolp)))
+  (markdown-test-string "## Heading ##"
+    (visual-line-mode)
+    (re-search-forward "## Heading ")
+    (dotimes (_ 1000) (insert "Text "))
+    (goto-char (point-min))
+    (markdown-end-of-line)
+    (should-not (eolp)))
+  ;; At an headline without special movement, go to end of line.
+  ;; However, never go past ellipsis.
+  (markdown-test-string "## Headline ##"
+    (let ((markdown-special-ctrl-a/e nil))
+      (markdown-end-of-line)
+      (should (eolp))))
+  (markdown-test-string "## Headline ##\n### Sub"
+    (let ((markdown-special-ctrl-a/e nil))
+      (goto-char (point-max))
+      (outline-hide-sublevels 2)
+      (markdown-end-of-line)
+      (should (= (line-beginning-position) 1))))
+
+  ;; At an headline with special movement, first move before close tag,
+  ;; then at the end of line, rinse, repeat.  However, never go past
+  ;; ellipsis.
+  (markdown-test-string "## Headline ##"
+    (let ((markdown-special-ctrl-a/e t))
+      (markdown-end-of-line)
+      (should (looking-at " ##"))
+      (markdown-end-of-line)
+      (should (eolp))
+      (markdown-end-of-line)
+      (should (looking-at " ##"))))
+  (markdown-test-string "## Headline ##\n### Sub"
+    (let ((markdown-special-ctrl-a/e t))
+      (goto-char (point-max))
+      (outline-hide-sublevels 2)
+      (markdown-end-of-line)
+      (should (= (line-beginning-position) 1))))
+
+  ;; At an headline, with reversed movement, first go to end of line,
+  ;; then before tags.  However, never go past ellipsis.
+  (markdown-test-string "## Headline ##"
+    (let ((markdown-special-ctrl-a/e 'reversed)
+	        (this-command last-command))
+      (markdown-end-of-line)
+      (should (eolp))
+      (markdown-end-of-line)
+      (should (looking-at " ##"))))
+  (markdown-test-string "## Headline ##\n### Sub"
+    (let ((markdown-special-ctrl-a/e 'reversed)
+	        (this-command last-command))
+      (goto-char (point-max))
+      (outline-hide-sublevels 2)
+      (markdown-end-of-line)
+      (should (= (line-beginning-position) 1)))))
+
 (ert-deftest test-markdown-movement/defun ()
   "Test defun navigation."
   (markdown-test-file "outline.text"
@@ -5365,6 +5549,24 @@ Detail: https://github.com/jrblevin/markdown-mode/issues/430"
   "Test `markdown-link-at-pos' return values with an inline image."
   (markdown-test-string "![text](url \"title\")"
     (should (equal (markdown-link-at-pos (point)) '(1 21 "text" "url" nil "title" "!")))))
+
+(ert-deftest test-markdown-link/inline-link-with-brackets ()
+  "Test `markdown-link-at-pos' return values with a link with backets.
+Details: https://github.com/jrblevin/markdown-mode/issues/800
+
+A link can contain spaces if it is wrapped with angle brackets"
+  (markdown-test-string "[text](<file name has space>)"
+    (should (equal (markdown-link-at-pos (point)) '(1 30 "text" "file name has space" nil nil nil)))))
+
+(ert-deftest test-markdown-link/inline-link-with-url-escape ()
+  "Test `markdown-link-at-pos' return values with a link with url escapes.
+Details: https://github.com/jrblevin/markdown-mode/issues/805
+
+A link can contain spaces if it is wrapped with angle brackets"
+  (markdown-test-string "[text](bar%20baz.md)"
+    (should (equal (nth 3 (markdown-link-at-pos (point))) "bar baz.md")))
+  (markdown-test-string "[text](<bar%20baz.md>)"
+    (should (equal (nth 3 (markdown-link-at-pos (point))) "bar baz.md"))))
 
 (ert-deftest test-markdown-link/reference-link-at-pos ()
   "Test `markdown-link-at-pos' return values with a reference link."
@@ -6174,6 +6376,18 @@ Detail: https://github.com/jrblevin/markdown-mode/issues/352"
       (markdown-test-range-has-face 7 8 'markdown-markup-face)
       (markdown-test-range-has-face 9 9 'markdown-math-face)
       (markdown-test-range-has-face 10 11 'markdown-markup-face))))
+
+(ert-deftest test-markdown-math/caret-in-math-inline ()
+  "Test for carets in math inline.
+Details: https://github.com/jrblevin/markdown-mode/issues/802"
+  (let ((markdown-enable-math t))
+    (markdown-test-string "$a^b^c$"
+      (markdown-test-range-has-face 3 3 'markdown-math-face)
+      (markdown-test-range-has-face 5 5 'markdown-math-face))
+
+    (markdown-test-string "$$a^b^c$$"
+      (markdown-test-range-has-face 4 4 'markdown-math-face)
+      (markdown-test-range-has-face 6 6 'markdown-math-face))))
 
 (ert-deftest test-markdown-math/math-inline-small-buffer ()
   "Test that font-lock parsing works with a single dollar."
@@ -7350,6 +7564,21 @@ title: asdasdasd
 |-----|:-----|:-----:|-------:|
 | aaa | bbbb | ccccc | dddddd |
 "))))
+
+(ert-deftest test-markdown-table/align-with-seperator-in-inline-code ()
+  "Test table realignment when separator is in inline code.
+Detail: https://github.com/jrblevin/markdown-mode/issues/817"
+  (markdown-test-string "| `<|--` | Inheritance   |
+| `..|>` | Realization   |
+"
+    (let ((columns (markdown--table-line-to-columns
+                    (buffer-substring (line-beginning-position) (line-end-position)))))
+      (should (equal columns '("`<|--`" "Inheritance"))))
+
+    (forward-line)
+    (let ((columns (markdown--table-line-to-columns
+                    (buffer-substring (line-beginning-position) (line-end-position)))))
+      (should (equal columns '("`..|>`" "Realization"))))))
 
 (ert-deftest test-markdown-table/disable-table-align ()
   "Test disable table alignment."

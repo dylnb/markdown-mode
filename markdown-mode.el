@@ -51,6 +51,13 @@
 
 (declare-function project-roots "project")
 (declare-function sh-set-shell "sh-script")
+(declare-function mailcap-file-name-to-mime-type "mailcap")
+(declare-function dnd-get-local-file-name "dnd")
+
+;; for older emacs<29
+(declare-function mailcap-mime-type-to-extension "mailcap")
+(declare-function file-name-with-extension "files")
+(declare-function yank-media-handler "yank-media")
 
 
 ;;; Constants =================================================================
@@ -72,6 +79,13 @@
 
 (defvar markdown-gfm-language-history nil
   "History list of languages used in the current buffer in GFM code blocks.")
+
+(defvar markdown-follow-link-functions nil
+  "Functions used to follow a link.
+Each function is called with one argument, the link's URL. It
+should return non-nil if it followed the link, or nil if not.
+Functions are called in order until one of them returns non-nil;
+otherwise the default link-following function is used.")
 
 
 ;;; Customizable Variables ====================================================
@@ -168,7 +182,7 @@ defined by Markdown and HTML.  Increasing this produces extra
 whitespace on the left.  Decreasing it may be preferred when
 fewer than six nested heading levels are used."
   :group 'markdown
-  :type 'natnump
+  :type 'integer
   :safe 'natnump
   :package-version '(markdown-mode . "2.4"))
 
@@ -301,7 +315,6 @@ be used."
 This may be a single string or a list of string. In case of a
 list, the first one that satisfies `char-displayable-p' will be
 used."
-  :type 'string
   :type '(choice
           (string :tag "Single blockquote display string")
           (repeat :tag "List of possible blockquote display strings" string))
@@ -646,6 +659,44 @@ markdown-header-face-* faces."
   :safe 'booleanp
   :package-version '(markdown-mode . "2.5"))
 
+(defcustom markdown-special-ctrl-a/e nil
+  "Non-nil means `C-a' and `C-e' behave specially in headlines and items.
+
+When t, `C-a' will bring back the cursor to the beginning of the
+headline text. In an item, this will be the position after bullet
+and check-box, if any. When the cursor is already at that
+position, another `C-a' will bring it to the beginning of the
+line.
+
+`C-e' will jump to the end of the headline, ignoring the presence
+of closing tags in the headline. A second `C-e' will then jump to
+the true end of the line, after closing tags. This also means
+that, when this variable is non-nil, `C-e' also will never jump
+beyond the end of the heading of a folded section, i.e. not after
+the ellipses.
+
+When set to the symbol `reversed', the first `C-a' or `C-e' works
+normally, going to the true line boundary first.  Only a directly
+following, identical keypress will bring the cursor to the
+special positions.
+
+This may also be a cons cell where the behavior for `C-a' and
+`C-e' is set separately."
+  :group 'markdown
+  :type '(choice
+	  (const :tag "off" nil)
+	  (const :tag "on: after hashes/bullet and before closing tags first" t)
+	  (const :tag "reversed: true line boundary first" reversed)
+	  (cons :tag "Set C-a and C-e separately"
+		(choice :tag "Special C-a"
+			(const :tag "off" nil)
+			(const :tag "on: after hashes/bullet first" t)
+			(const :tag "reversed: before hashes/bullet first" reversed))
+		(choice :tag "Special C-e"
+			(const :tag "off" nil)
+			(const :tag "on: before closing tags first" t)
+			(const :tag "reversed: after closing tags first" reversed))))
+  :package-version '(markdown-mode . "2.7"))
 
 ;;; Markdown-Specific `rx' Macro ==============================================
 
@@ -1140,6 +1191,10 @@ If POS is not given, use point instead."
         (cl-loop for face in face-prop
                  thereis (memq face faces))
       (memq face-prop faces))))
+
+(defsubst markdown--math-block-p (&optional pos)
+  (when markdown-enable-math
+    (markdown--face-p (or pos (point)) '(markdown-math-face))))
 
 (defun markdown-syntax-propertize-extend-region (start end)
   "Extend START to END region to include an entire block of text.
@@ -2066,7 +2121,7 @@ headers of levels one through six respectively."
   '(2.0 1.7 1.4 1.1 1.0 1.0)
   "List of scaling values for headers of level one through six.
 Used when `markdown-header-scaling' is non-nil."
-  :type 'list
+  :type '(repeat float)
   :initialize #'custom-initialize-default
   :set (lambda (symbol value)
          (set-default symbol value)
@@ -3589,7 +3644,8 @@ SEQ may be an atom or a sequence."
   (when (markdown-search-until-condition
          (lambda () (and (not (markdown-code-block-at-point-p))
                          (not (markdown-inline-code-at-point-p))
-                         (not (markdown-in-comment-p))))
+                         (not (markdown-in-comment-p))
+                         (not (markdown--math-block-p))))
          markdown-regex-sub-superscript last t)
     (let* ((subscript-p (string= (match-string 2) "~"))
            (props
@@ -5513,6 +5569,9 @@ Assumes match data is available for `markdown-regex-italic'."
     (define-key map (kbd "C-x n s") 'markdown-narrow-to-subtree)
     (define-key map (kbd "M-RET") 'markdown-insert-list-item)
     (define-key map (kbd "C-c C-j") 'markdown-insert-list-item)
+    ;; Lines
+    (define-key map [remap move-beginning-of-line] 'markdown-beginning-of-line)
+    (define-key map [remap move-end-of-line] 'markdown-end-of-line)
     ;; Paragraphs (Markdown context aware)
     (define-key map [remap backward-paragraph] 'markdown-backward-paragraph)
     (define-key map [remap forward-paragraph] 'markdown-forward-paragraph)
@@ -6455,6 +6514,130 @@ a list."
 
 
 ;;; Movement ==================================================================
+
+;; This function was originally derived from `org-beginning-of-line' from org.el.
+(defun markdown-beginning-of-line (&optional n)
+  "Go to the beginning of the current visible line.
+
+If this is a headline, and `markdown-special-ctrl-a/e' is not nil
+or symbol `reversed', on the first attempt move to where the
+headline text hashes, and only move to beginning of line when the
+cursor is already before the hashes of the text of the headline.
+
+If `markdown-special-ctrl-a/e' is symbol `reversed' then go to
+the hashes of the text on the second attempt.
+
+With argument N not nil or 1, move forward N - 1 lines first."
+  (interactive "^p")
+  (let ((origin (point))
+        (special (pcase markdown-special-ctrl-a/e
+                   (`(,C-a . ,_) C-a) (_ markdown-special-ctrl-a/e)))
+        deactivate-mark)
+    ;; First move to a visible line.
+    (if visual-line-mode
+        (beginning-of-visual-line n)
+      (move-beginning-of-line n)
+      ;; `move-beginning-of-line' may leave point after invisible
+      ;; characters if line starts with such of these (e.g., with
+      ;; a link at column 0).  Really move to the beginning of the
+      ;; current visible line.
+      (forward-line 0))
+    (cond
+     ;; No special behavior.  Point is already at the beginning of
+     ;; a line, logical or visual.
+     ((not special))
+     ;; `beginning-of-visual-line' left point before logical beginning
+     ;; of line: point is at the beginning of a visual line.  Bail
+     ;; out.
+     ((and visual-line-mode (not (bolp))))
+     ((looking-at markdown-regex-header-atx)
+      ;; At a header, special position is before the title.
+      (let ((refpos (match-beginning 2))
+            (bol (point)))
+        (if (eq special 'reversed)
+            (when (and (= origin bol) (eq last-command this-command))
+              (goto-char refpos))
+          (when (or (> origin refpos) (<= origin bol))
+            (goto-char refpos)))
+        ;; Prevent automatic cursor movement caused by the command loop.
+        ;; Enable disable-point-adjustment to avoid unintended cursor repositioning.
+        (when (and markdown-hide-markup
+                   (equal (get-char-property (point) 'display) ""))
+          (setq disable-point-adjustment t))))
+     ((looking-at markdown-regex-list)
+      ;; At a list item, special position is after the list marker or checkbox.
+      (let ((refpos (or (match-end 4) (match-end 3))))
+        (if (eq special 'reversed)
+            (when (and (= (point) origin) (eq last-command this-command))
+              (goto-char refpos))
+          (when (or (> origin refpos) (<= origin (line-beginning-position)))
+          (goto-char refpos)))))
+     ;; No special case, already at beginning of line.
+     (t nil))))
+
+;; This function was originally derived from `org-end-of-line' from org.el.
+(defun markdown-end-of-line (&optional n)
+  "Go to the end of the line, but before ellipsis, if any.
+
+If this is a headline, and `markdown-special-ctrl-a/e' is not nil
+or symbol `reversed', ignore closing tags on the first attempt,
+and only move to after the closing tags when the cursor is
+already beyond the end of the headline.
+
+If `markdown-special-ctrl-a/e' is symbol `reversed' then ignore
+closing tags on the second attempt.
+
+With argument N not nil or 1, move forward N - 1 lines first."
+  (interactive "^p")
+  (let ((origin (point))
+        (special (pcase markdown-special-ctrl-a/e
+                   (`(,_ . ,C-e) C-e) (_ markdown-special-ctrl-a/e)))
+        deactivate-mark)
+    ;; First move to a visible line.
+    (if visual-line-mode
+        (beginning-of-visual-line n)
+      (move-beginning-of-line n))
+    (cond
+     ;; At a headline, with closing tags.
+     ((save-excursion
+        (forward-line 0)
+        (and (looking-at markdown-regex-header-atx) (match-end 3)))
+      (let ((refpos (match-end 2))
+            (visual-end (and visual-line-mode
+                             (save-excursion
+                               (end-of-visual-line)
+                               (point)))))
+        ;; If `end-of-visual-line' brings us before end of line or even closing
+        ;; tags, i.e., the headline spans over multiple visual lines, move
+        ;; there.
+        (cond ((and visual-end
+                    (< visual-end refpos)
+                    (<= origin visual-end))
+               (goto-char visual-end))
+              ((not special) (end-of-line))
+              ((eq special 'reversed)
+               (if (and (= origin (line-end-position))
+                        (eq this-command last-command))
+                   (goto-char refpos)
+                 (end-of-line)))
+              (t
+               (if (or (< origin refpos) (>= origin (line-end-position)))
+                   (goto-char refpos)
+                 (end-of-line))))
+        ;; Prevent automatic cursor movement caused by the command loop.
+        ;; Enable disable-point-adjustment to avoid unintended cursor repositioning.
+        (when (and markdown-hide-markup
+                   (equal (get-char-property (point) 'display) ""))
+          (setq disable-point-adjustment t))))
+     (visual-line-mode
+      (let ((bol (line-beginning-position)))
+        (end-of-visual-line)
+        ;; If `end-of-visual-line' gets us past the ellipsis at the
+        ;; end of a line, backtrack and use `end-of-line' instead.
+        (when (/= bol (line-beginning-position))
+          (goto-char bol)
+          (end-of-line))))
+     (t (end-of-line)))))
 
 (defun markdown-beginning-of-defun (&optional arg)
   "`beginning-of-defun-function' for Markdown.
@@ -7856,10 +8039,14 @@ Value is a list of elements describing the link:
         (let* ((close-pos (scan-sexps (match-beginning 5) 1))
                (destination-part (string-trim (buffer-substring-no-properties (1+ (match-beginning 5)) (1- close-pos)))))
           (setq end close-pos)
-          (if (string-match "\\([^ ]+\\)\\s-+\\(.+\\)" destination-part)
-              (setq url (match-string-no-properties 1 destination-part)
-                    title (substring (match-string-no-properties 2 destination-part) 1 -1))
-            (setq url destination-part))))
+          ;; A link can contain spaces if it is wrapped with angle brackets
+          (cond ((string-match "\\`<\\(.+\\)>\\'" destination-part)
+                 (setq url (match-string-no-properties 1 destination-part)))
+                ((string-match "\\([^ ]+\\)\\s-+\\(.+\\)" destination-part)
+                 (setq url (match-string-no-properties 1 destination-part)
+                       title (substring (match-string-no-properties 2 destination-part) 1 -1)))
+                (t (setq url destination-part)))
+          (setq url (url-unhex-string url))))
        ;; Reference link at point.
        ((thing-at-point-looking-at markdown-regex-link-reference)
         (setq bang (match-string-no-properties 1)
@@ -7915,11 +8102,11 @@ If the link is a complete URL, open in browser with `browse-url'.
 Otherwise, open with `find-file' after stripping anchor and/or query string.
 Translate filenames using `markdown-filename-translate-function'."
   (interactive (list last-command-event))
-  (save-excursion
-    (if event (posn-set-point (event-start event)))
-    (if (markdown-link-p)
-        (markdown--browse-url (markdown-link-url))
-      (user-error "Point is not at a Markdown link or URL"))))
+  (if event (posn-set-point (event-start event)))
+  (if (markdown-link-p)
+      (or (run-hook-with-args-until-success 'markdown-follow-link-functions (markdown-link-url))
+          (markdown--browse-url (markdown-link-url)))
+    (user-error "Point is not at a Markdown link or URL")))
 
 (defun markdown-fontify-inline-links (last)
   "Add text properties to next inline link from point to LAST."
@@ -8329,7 +8516,7 @@ See `markdown-follow-link-at-point' and
 `markdown-follow-wiki-link-at-point'."
   (interactive "P")
   (cond ((markdown-link-p)
-         (markdown--browse-url (markdown-link-url)))
+         (markdown-follow-link-at-point))
         ((markdown-wiki-link-p)
          (markdown-follow-wiki-link-at-point arg))
         (t
@@ -9278,16 +9465,17 @@ This function assumes point is on a table."
     (goto-char (point-min))
     (let ((cur (point))
           ret)
-      (while (re-search-forward "\\s-*\\(|\\)\\s-*" nil t)
-        (if (markdown--first-column-p (match-beginning 1))
-            (setq cur (match-end 0))
-          (cond ((eql (char-before (match-beginning 1)) ?\\)
-                 ;; keep spaces
-                 (goto-char (match-end 1)))
-                ((markdown--thing-at-wiki-link (match-beginning 1))) ;; do nothing
-                (t
-                 (push (buffer-substring-no-properties cur (match-beginning 0)) ret)
-                 (setq cur (match-end 0))))))
+      (while (and (re-search-forward "\\s-*\\(|\\)\\s-*" nil t))
+        (when (not (markdown--face-p (match-beginning 1) '(markdown-inline-code-face)))
+          (if (markdown--first-column-p (match-beginning 1))
+              (setq cur (match-end 0))
+            (cond ((eql (char-before (match-beginning 1)) ?\\)
+                   ;; keep spaces
+                   (goto-char (match-end 1)))
+                  ((markdown--thing-at-wiki-link (match-beginning 1))) ;; do nothing
+                  (t
+                   (push (buffer-substring-no-properties cur (match-beginning 0)) ret)
+                   (setq cur (match-end 0)))))))
       (when (< cur (length line))
         (push (buffer-substring-no-properties cur (point-max)) ret))
       (nreverse ret))))
@@ -9821,6 +10009,48 @@ rows and columns and the column alignment."
               (markdown--substitute-command-keys
                "\\[markdown-toggle-markup-hiding]"))))))
 
+(defun markdown--image-media-handler (mimetype data)
+  (let* ((ext (symbol-name (mailcap-mime-type-to-extension mimetype)))
+         (filename (read-string "Insert filename for image: "))
+         (link-text (read-string "Link text: "))
+         (filepath (file-name-with-extension filename ext))
+         (dir (file-name-directory filepath)))
+    (when (and dir (not (file-directory-p dir)))
+      (make-directory dir t))
+    (with-temp-file filepath
+      (insert data))
+    (when (string-match-p "\\s-" filepath)
+      (setq filepath (concat "<" filepath ">")))
+    (markdown-insert-inline-image link-text filepath)))
+
+(defun markdown--file-media-handler (_mimetype data)
+  (let* ((data (split-string data "[\0\r\n]" t "^file://"))
+         (files (cdr data)))
+    (while (not (null files))
+      (let* ((file (url-unhex-string (car files)))
+             (file (file-relative-name file))
+             (prompt (format "Link text(%s): " (file-name-nondirectory file)))
+             (link-text (read-string prompt)))
+        (when (string-match-p "\\s-" file)
+          (setq file (concat "<" file ">")))
+        (markdown-insert-inline-image link-text file)
+        (when (not (null (cdr files)))
+          (insert " "))
+        (setq files (cdr files))))))
+
+(defun markdown--dnd-local-file-handler (url _action)
+  (require 'mailcap)
+  (require 'dnd)
+  (let* ((filename (dnd-get-local-file-name url))
+         (mimetype (mailcap-file-name-to-mime-type filename))
+         (file (file-relative-name filename))
+         (link-text "link text"))
+    (when (string-match-p "\\s-" file)
+      (setq file (concat "<" file ">")))
+    (if (string-prefix-p "image/" mimetype)
+        (markdown-insert-inline-image link-text file)
+      (markdown-insert-inline-link link-text file))))
+
 
 ;;; Mode Definition  ==========================================================
 
@@ -9949,6 +10179,16 @@ rows and columns and the column alignment."
   (add-hook 'electric-quote-inhibit-functions
             #'markdown--inhibit-electric-quote nil :local)
 
+  ;; drag and drop handler
+  (setq-local dnd-protocol-alist  (cons '("^file:///" . markdown--dnd-local-file-handler)
+                                        dnd-protocol-alist))
+
+  ;; media handler
+  (when (version< "29" emacs-version)
+    (yank-media-handler "image/.*" #'markdown--image-media-handler)
+    ;; TODO support other than GNOME, like KDE etc
+    (yank-media-handler "x-special/gnome-copied-files" #'markdown--file-media-handler))
+
   ;; Make checkboxes buttons
   (when markdown-make-gfm-checkboxes-buttons
     (markdown-make-gfm-checkboxes-buttons (point-min) (point-max))
@@ -9967,7 +10207,18 @@ rows and columns and the column alignment."
 
   ;; add live preview export hook
   (add-hook 'after-save-hook #'markdown-live-preview-if-markdown t t)
-  (add-hook 'kill-buffer-hook #'markdown-live-preview-remove-on-kill t t))
+  (add-hook 'kill-buffer-hook #'markdown-live-preview-remove-on-kill t t)
+
+  ;; Add a custom keymap for `visual-line-mode' so that activating
+  ;; this minor mode does not override markdown-mode's keybindings.
+  ;; FIXME: Probably `visual-line-mode' should take care of this.
+  (let ((oldmap (cdr (assoc 'visual-line-mode minor-mode-map-alist)))
+        (newmap (make-sparse-keymap)))
+    (set-keymap-parent newmap oldmap)
+    (define-key newmap [remap move-beginning-of-line] nil)
+    (define-key newmap [remap move-end-of-line] nil)
+    (make-local-variable 'minor-mode-overriding-map-alist)
+    (push `(visual-line-mode . ,newmap) minor-mode-overriding-map-alist)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist
